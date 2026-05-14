@@ -1,0 +1,91 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f5f5f7;
+  color: #1d1d1f;
+}
+
+a {
+  color: #0071e3;
+}
+
+.marker-shell {
+  min-height: 100vh;
+}
+
+.marker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  backdrop-filter: saturate(180%) blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.marker-content {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.marker-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 20px;
+  align-items: start;
+}
+
+.marker-card-title {
+  margin-bottom: 14px;
+}
+
+.job-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #f0f0f0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.job-row.is-selected {
+  border-color: #0071e3;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.12);
+}
+
+.job-row + .job-row {
+  margin-top: 10px;
+}
+
+.job-row-name {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .marker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .marker-header {
+    align-items: flex-start;
+    flex-direction: column;
+    height: auto;
+    padding: 14px 20px;
+  }
+}

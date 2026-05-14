@@ -13,7 +13,11 @@ temp.md
 temp
 conversion_results
 uploads
+private_marker_jobs
 /cache
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
