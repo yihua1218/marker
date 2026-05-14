@@ -47,6 +47,14 @@ The archive itself can be downloaded as:
 
 ## Endpoints
 
+### `GET /api/info`
+
+Returns machine-readable API metadata, including supported input extensions, output formats, archive formats, and endpoint names.
+
+### `GET /openapi.json`
+
+Returns FastAPI's OpenAPI schema for the private web service.
+
 ### `GET /auth/status`
 
 Returns the current authentication state.
@@ -153,7 +161,7 @@ Running jobs cannot be deleted.
 
 ## MCP Tool Plan
 
-A future MCP server can wrap this API with small tools:
+The implemented stdio MCP server wraps this API with these tools:
 
 - `marker_web_auth_status`
   - Input: none or `base_url`.
@@ -176,6 +184,8 @@ A future MCP server can wrap this API with small tools:
 
 The MCP server should read the token from an environment variable such as `MARKER_WEB_TOKEN` and send it as a Bearer token.
 
+See [private-marker-mcp.md](./private-marker-mcp.md) for startup and JSON-RPC examples.
+
 ## Skill Plan
 
 A Codex skill can provide a higher-level workflow:
@@ -194,3 +204,5 @@ Suggested skill commands:
 - "Convert this PDF to JSON and download the zip."
 - "List retained Marker conversion jobs."
 - "Delete Marker job `<job_id>`."
+
+See [private-marker-skill.md](./private-marker-skill.md) and [skills/private-marker-web/SKILL.md](./skills/private-marker-web/SKILL.md).

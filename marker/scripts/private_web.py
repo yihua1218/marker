@@ -625,6 +625,32 @@ async def health():
     return JSONResponse({"ok": True, "private_mode": bool(marker_web_token())})
 
 
+@app.get("/api/info")
+async def api_info():
+    return {
+        "service": "Private Marker Web",
+        "authentication": {
+            "cookie": SESSION_COOKIE,
+            "bearer_token": bool(marker_web_token()),
+            "loopback_only_when_token_missing": True,
+        },
+        "supported_input_extensions": sorted(SUPPORTED_INPUT_EXTENSIONS),
+        "supported_output_formats": sorted(SUPPORTED_OUTPUT_FORMATS),
+        "supported_archive_formats": sorted(ALLOWED_ARCHIVE_FORMATS),
+        "endpoints": {
+            "auth_status": "GET /auth/status",
+            "auth": "POST /auth",
+            "logout": "POST /auth/logout",
+            "create_job": "POST /jobs",
+            "list_jobs": "GET /jobs",
+            "get_job": "GET /jobs/{job_id}",
+            "download_job": "GET /jobs/{job_id}/download?format=zip",
+            "delete_job": "DELETE /jobs/{job_id}",
+            "openapi": "GET /openapi.json",
+        },
+    }
+
+
 @click.command()
 @click.option("--port", type=int, default=8765, help="Port to run the private web app on")
 @click.option("--host", type=str, default="127.0.0.1", help="Host to run the private web app on")

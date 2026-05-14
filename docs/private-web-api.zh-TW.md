@@ -47,6 +47,14 @@ Client 可用兩種方式驗證：
 
 ## Endpoints
 
+### `GET /api/info`
+
+回傳機器可讀的 API metadata，包含支援輸入副檔名、輸出格式、壓縮格式與 endpoint 名稱。
+
+### `GET /openapi.json`
+
+回傳此 private web service 的 FastAPI OpenAPI schema。
+
 ### `GET /auth/status`
 
 回傳目前驗證狀態。
@@ -102,7 +110,7 @@ Running jobs 不允許刪除。
 
 ## MCP Tool 規劃
 
-未來可以用 MCP server 包裝這些 API：
+已實作的 stdio MCP server 會用以下 tools 包裝這些 API：
 
 - `marker_web_auth_status`
   - Input：無，或 `base_url`。
@@ -125,6 +133,8 @@ Running jobs 不允許刪除。
 
 MCP server 應從環境變數讀取 token，例如 `MARKER_WEB_TOKEN`，並用 Bearer token 傳送。
 
+啟動方式與 JSON-RPC 範例請見 [private-marker-mcp.md](./private-marker-mcp.md)。
+
 ## Skill 規劃
 
 Codex skill 可提供高階工作流：
@@ -143,3 +153,5 @@ Codex skill 可提供高階工作流：
 - 「把這個 PDF 轉成 JSON 並下載 zip。」
 - 「列出已保留的 Marker conversion jobs。」
 - 「刪除 Marker job `<job_id>`。」
+
+Skill 說明與範例請見 [private-marker-skill.md](./private-marker-skill.md) 和 [skills/private-marker-web/SKILL.md](./skills/private-marker-web/SKILL.md)。
