@@ -39,6 +39,22 @@ FRONTEND_DIST = Path(os.environ.get("MARKER_WEB_FRONTEND_DIST", "frontend/dist")
 MAX_UPLOAD_BYTES = int(os.environ.get("MARKER_WEB_MAX_UPLOAD_MB", "100")) * 1024 * 1024
 SESSION_COOKIE = "marker_web_token"
 ALLOWED_ARCHIVE_FORMATS = {"zip", "tar.gz"}
+SUPPORTED_OUTPUT_FORMATS = {"markdown", "json", "html", "chunks"}
+SUPPORTED_INPUT_EXTENSIONS = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".tif",
+    ".tiff",
+    ".pptx",
+    ".docx",
+    ".xlsx",
+    ".html",
+    ".htm",
+    ".epub",
+}
 executor = ThreadPoolExecutor(max_workers=int(os.environ.get("MARKER_WEB_WORKERS", "1")))
 
 
@@ -46,6 +62,7 @@ class Job(BaseModel):
     id: str
     original_filename: str
     document_stem: str
+    output_format: Literal["markdown", "json", "html", "chunks"]
     status: Literal["queued", "running", "complete", "failed"]
     stage: str
     progress: int
@@ -75,7 +92,9 @@ class JobStore:
             self._jobs.clear()
             for job_path in JOB_ROOT.glob("*/job.json"):
                 try:
-                    job = Job.model_validate_json(job_path.read_text(encoding=settings.OUTPUT_ENCODING))
+                    payload = json.loads(job_path.read_text(encoding=settings.OUTPUT_ENCODING))
+                    payload.setdefault("output_format", "markdown")
+                    job = Job.model_validate(payload)
                     if job.status in {"queued", "running"}:
                         job = job.model_copy(
                             update={
@@ -188,40 +207,49 @@ def safe_stem(filename: str) -> str:
     return stem or "document"
 
 
-def validate_pdf_bytes(content: bytes):
+def validate_upload_bytes(filename: str, content: bytes):
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="PDF exceeds configured upload limit")
-    if not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=413, detail="File exceeds configured upload limit")
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in SUPPORTED_INPUT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Supported inputs: PDF, images, PPTX, DOCX, XLSX, HTML, and EPUB.",
+        )
+
+    if suffix == ".pdf" and not content.startswith(b"%PDF-"):
         raise HTTPException(status_code=400, detail="Uploaded file is not a readable PDF")
 
 
-def rewrite_image_references(markdown: str, image_names: list[str]) -> str:
+def rewrite_image_references(text: str, image_names: list[str]) -> str:
     for image_name in image_names:
-        markdown = markdown.replace(f"]({image_name})", f"](images/{image_name})")
-        markdown = markdown.replace(f'src="{image_name}"', f'src="images/{image_name}"')
-        markdown = markdown.replace(f"src='{image_name}'", f"src='images/{image_name}'")
-    return markdown
+        text = text.replace(f"]({image_name})", f"](images/{image_name})")
+        text = text.replace(f'src="{image_name}"', f'src="images/{image_name}"')
+        text = text.replace(f"src='{image_name}'", f"src='images/{image_name}'")
+    return text
 
 
-def save_private_output(rendered, output_dir: Path, document_stem: str) -> Path:
+def save_private_output(rendered, output_dir: Path, document_stem: str, output_format: str) -> Path:
     text, ext, images = text_from_rendered(rendered)
-    if ext != "md":
-        raise ValueError("Private web converter currently expects markdown output")
 
     images_dir = output_dir / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
+    if images:
+        images_dir.mkdir(parents=True, exist_ok=True)
 
     image_names = list(images.keys())
-    text = rewrite_image_references(text, image_names)
+    if ext in {"md", "html"}:
+        text = rewrite_image_references(text, image_names)
     text = text.encode(settings.OUTPUT_ENCODING, errors="replace").decode(settings.OUTPUT_ENCODING)
 
-    markdown_path = output_dir / f"{document_stem}.md"
-    markdown_path.write_text(text, encoding=settings.OUTPUT_ENCODING)
+    output_path = output_dir / f"{document_stem}.{ext}"
+    output_path.write_text(text, encoding=settings.OUTPUT_ENCODING)
 
     metadata = {
         "marker_metadata": rendered.metadata,
         "generated_at": time.time(),
-        "output_format": "markdown",
+        "output_format": output_format,
+        "output_extension": ext,
         "image_directory": "images",
     }
     (output_dir / "metadata.json").write_text(
@@ -232,7 +260,7 @@ def save_private_output(rendered, output_dir: Path, document_stem: str) -> Path:
         image = convert_if_not_rgb(image)
         image.save(images_dir / image_name, settings.OUTPUT_IMAGE_FORMAT)
 
-    return markdown_path
+    return output_path
 
 
 def make_archives(output_dir: Path, archive_dir: Path, document_stem: str) -> tuple[Path, Path]:
@@ -254,7 +282,7 @@ def make_archives(output_dir: Path, archive_dir: Path, document_stem: str) -> tu
     return zip_path, targz_path
 
 
-def run_conversion(job_id: str, input_path: Path, document_stem: str):
+def run_conversion(job_id: str, input_path: Path, document_stem: str, output_format: str):
     jobs: JobStore = app_data["jobs"]
     job_dir = JOB_ROOT / job_id
     output_dir = job_dir / "output"
@@ -265,8 +293,8 @@ def run_conversion(job_id: str, input_path: Path, document_stem: str):
         jobs.update(job_id, status="running", stage="Loading models", progress=10)
         models = create_model_dict()
 
-        jobs.update(job_id, stage="Converting PDF to Markdown", progress=20)
-        config_parser = ConfigParser({"output_format": "markdown", "disable_multiprocessing": True})
+        jobs.update(job_id, stage=f"Converting to {output_format}", progress=20)
+        config_parser = ConfigParser({"output_format": output_format, "disable_multiprocessing": True})
         converter = PdfConverter(
             config=config_parser.generate_config_dict(),
             artifact_dict=models,
@@ -277,7 +305,7 @@ def run_conversion(job_id: str, input_path: Path, document_stem: str):
         rendered = converter(str(input_path))
 
         jobs.update(job_id, stage="Normalizing output", progress=85)
-        save_private_output(rendered, output_dir, document_stem)
+        save_private_output(rendered, output_dir, document_stem, output_format)
 
         jobs.update(job_id, stage="Packaging archives", progress=92)
         zip_path, targz_path = make_archives(output_dir, archive_dir, document_stem)
@@ -349,6 +377,15 @@ def html_page() -> str:
     <form id="upload-form">
       <label for="pdf">PDF file</label>
       <input id="pdf" name="file" type="file" accept="application/pdf,.pdf" required>
+      <p>
+        <label for="output_format">Output format</label>
+        <select id="output_format" name="output_format">
+          <option value="markdown">Markdown</option>
+          <option value="json">JSON</option>
+          <option value="html">HTML</option>
+          <option value="chunks">Chunks</option>
+        </select>
+      </p>
       <p>
         <label for="format">Download format</label>
         <select id="format" name="format">
@@ -483,28 +520,34 @@ async def auth_status(
 async def create_job(
     request: Request,
     file: Annotated[UploadFile, File()],
+    output_format: Annotated[str, Form()] = "markdown",
     marker_web_token_cookie: Annotated[Optional[str], Cookie(alias=SESSION_COOKIE)] = None,
     authorization: Annotated[Optional[str], Header()] = None,
 ):
     require_auth(request, marker_web_token_cookie, authorization)
+    if output_format not in SUPPORTED_OUTPUT_FORMATS:
+        raise HTTPException(status_code=400, detail="Unsupported output format")
 
     content = await file.read()
-    validate_pdf_bytes(content)
+    validate_upload_bytes(file.filename or "document.pdf", content)
 
     job_id = uuid.uuid4().hex
-    document_stem = safe_stem(file.filename or "document.pdf")
+    original_filename = file.filename or "document.pdf"
+    document_stem = safe_stem(original_filename)
+    input_suffix = Path(original_filename).suffix.lower() or ".pdf"
     job_dir = JOB_ROOT / job_id
     input_dir = job_dir / "input"
     if job_dir.exists():
         shutil.rmtree(job_dir)
     input_dir.mkdir(parents=True, exist_ok=True)
-    input_path = input_dir / f"{document_stem}.pdf"
+    input_path = input_dir / f"{document_stem}{input_suffix}"
     input_path.write_bytes(content)
 
     job = Job(
         id=job_id,
-        original_filename=file.filename or "document.pdf",
+        original_filename=original_filename,
         document_stem=document_stem,
+        output_format=output_format,  # type: ignore[arg-type]
         status="queued",
         stage="Queued",
         progress=0,
@@ -512,7 +555,7 @@ async def create_job(
         updated_at=time.time(),
     )
     app_data["jobs"].add(job)
-    executor.submit(run_conversion, job_id, input_path, document_stem)
+    executor.submit(run_conversion, job_id, input_path, document_stem, output_format)
     return job
 
 

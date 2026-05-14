@@ -35,11 +35,13 @@ const { Header, Content, Footer } = Layout;
 const { Title, Text, Paragraph } = Typography;
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed';
+type OutputFormat = 'markdown' | 'json' | 'html' | 'chunks';
 
 interface Job {
   id: string;
   original_filename: string;
   document_stem: string;
+  output_format: OutputFormat;
   status: JobStatus;
   stage: string;
   progress: number;
@@ -61,6 +63,31 @@ const statusColor: Record<JobStatus, string> = {
   failed: 'error',
 };
 
+const supportedInputFormats = ['PDF', 'Images', 'PPTX', 'DOCX', 'XLSX', 'HTML', 'EPUB'];
+const supportedOutputFormats: Array<{ value: OutputFormat; label: string; description: string }> = [
+  { value: 'markdown', label: 'Markdown', description: 'Readable .md output with extracted images' },
+  { value: 'json', label: 'JSON', description: 'Structured document tree as JSON' },
+  { value: 'html', label: 'HTML', description: 'Rendered HTML output' },
+  { value: 'chunks', label: 'Chunks', description: 'Chunked JSON for retrieval workflows' },
+];
+const uploadAccept = [
+  'application/pdf',
+  '.pdf',
+  'image/*',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.tif',
+  '.tiff',
+  '.pptx',
+  '.docx',
+  '.xlsx',
+  '.html',
+  '.htm',
+  '.epub',
+].join(',');
+
 function formatTime(value: number) {
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -77,6 +104,7 @@ function App() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [archiveFormat, setArchiveFormat] = useState<'zip' | 'tar.gz'>('zip');
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('markdown');
   const [uploading, setUploading] = useState(false);
   const [loadingJobs, setLoadingJobs] = useState(false);
 
@@ -149,6 +177,7 @@ function App() {
 
     const body = new FormData();
     body.append('file', file);
+    body.append('output_format', outputFormat);
     setUploading(true);
     try {
       const res = await axios.post<Job>('/jobs', body);
@@ -272,11 +301,36 @@ function App() {
                   <div className="marker-card-title">
                     <Title level={3}>Convert PDF</Title>
                     <Paragraph type="secondary">
-                      Uploaded files and generated archives stay on this private server until you delete the job.
+                      Marker can read PDF, image, PPTX, DOCX, XLSX, HTML, and EPUB files. Choose the Marker output mode and download the result as an archive.
                     </Paragraph>
                   </div>
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Supported formats"
+                    description={(
+                      <Space direction="vertical" size={8}>
+                        <div>
+                          <Text strong>Input: </Text>
+                          {supportedInputFormats.map((format) => (
+                            <Tag key={format}>{format}</Tag>
+                          ))}
+                        </div>
+                        <div>
+                          <Text strong>Marker output modes: </Text>
+                          {supportedOutputFormats.map((format) => (
+                            <Tag key={format.value} color={format.value === outputFormat ? 'blue' : undefined}>{format.label}</Tag>
+                          ))}
+                        </div>
+                        <Text type="secondary">
+                          Uploaded files and generated archives stay on this private server until you delete the job.
+                        </Text>
+                      </Space>
+                    )}
+                  />
                   <Upload
-                    accept="application/pdf,.pdf"
+                    accept={uploadAccept}
                     maxCount={1}
                     fileList={fileList}
                     beforeUpload={() => false}
@@ -285,6 +339,15 @@ function App() {
                     <Button icon={<UploadOutlined />}>Choose PDF</Button>
                   </Upload>
                   <Flex align="center" gap={12} style={{ marginTop: 16 }} wrap>
+                    <Select
+                      value={outputFormat}
+                      style={{ width: 180 }}
+                      onChange={setOutputFormat}
+                      options={supportedOutputFormats.map((format) => ({
+                        value: format.value,
+                        label: format.label,
+                      }))}
+                    />
                     <Select
                       value={archiveFormat}
                       style={{ width: 140 }}
@@ -298,6 +361,9 @@ function App() {
                       Start conversion
                     </Button>
                   </Flex>
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    {supportedOutputFormats.find((format) => format.value === outputFormat)?.description}
+                  </Text>
                 </Card>
 
                 <Card>
@@ -312,7 +378,9 @@ function App() {
                       <div>
                         <Text strong>{selectedJob.original_filename}</Text>
                         <br />
-                        <Text type="secondary">Created {formatTime(selectedJob.created_at)}</Text>
+                        <Text type="secondary">
+                          {selectedJob.output_format} · Created {formatTime(selectedJob.created_at)}
+                        </Text>
                       </div>
                       <Progress percent={selectedJob.progress} status={selectedJob.status === 'failed' ? 'exception' : undefined} />
                       <Text type={selectedJob.status === 'failed' ? 'danger' : 'secondary'}>
@@ -363,7 +431,7 @@ function App() {
                         <Tag color={statusColor[job.status]}>{job.status}</Tag>
                       </div>
                       <Progress percent={job.progress} size="small" showInfo={false} />
-                      <Text type="secondary">{job.stage} · {formatTime(job.updated_at)}</Text>
+                      <Text type="secondary">{job.output_format} · {job.stage} · {formatTime(job.updated_at)}</Text>
                     </button>
                   ))
                 )}
