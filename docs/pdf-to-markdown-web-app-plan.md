@@ -127,6 +127,7 @@ Recommended MVP stack:
 - Frontend: simple server-rendered page or lightweight SPA.
 - Storage: local filesystem under a configurable job directory.
 - Packaging: Python standard library `zipfile` and `tarfile`.
+- Container runtime: `nerdctl compose` with a Python runtime image and mounted persistent data.
 
 Job directory layout:
 
@@ -143,6 +144,15 @@ jobs/
       document.zip
       document.tar.gz
 ```
+
+Containerized deployment files:
+
+- `Dockerfile`: builds the frontend and packages the private Marker web service.
+- `docker-compose.yml`: runs the service with `nerdctl compose`, maps the configured port, and persists `/app/data`.
+- `.env.example`: documents runtime settings such as `PORT`, `MARKER_WEB_TOKEN`, `MARKER_WEB_JOB_DIR`, cache paths, image name, and image tag.
+- `.env`: local ignored runtime configuration.
+
+See [private-marker-container.md](./private-marker-container.md) for build, run, health check, and smoke-test commands.
 
 ## Security And Reliability
 
@@ -203,6 +213,9 @@ This document is an implementation planning note, not legal advice.
 - [ ] Add failure state and readable error messages.
 - [ ] Add job cleanup policy.
 - [ ] Ensure uploaded PDFs, outputs, archives, secrets, and model caches are ignored by git.
+- [ ] Add a container image build for the private web service.
+- [ ] Add `nerdctl compose` runtime configuration.
+- [ ] Document container build, run, health check, and smoke-test steps.
 - [ ] Verify GPL and model-license compliance before distribution.
 - [ ] Document that public access, third-party use, workplace use, customer use, or paid deployment requires a new licensing review.
 

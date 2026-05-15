@@ -1,0 +1,91 @@
+# Private Marker Container Setup
+
+This service can run with `nerdctl` and `nerdctl compose` through the repository `Dockerfile`, `docker-compose.yml`, `.env`, and `.env.example` files.
+
+## Files
+
+- `Dockerfile`: builds the React frontend and installs the private Marker web service into a Python runtime image.
+- `docker-compose.yml`: starts the web service, maps the configured port, mounts persistent data, and adds a health check.
+- `.env.example`: versioned example configuration.
+- `.env`: local runtime configuration, ignored by git.
+- `private-marker-data/`: ignored persistent data directory mounted into `/app/data`.
+
+## Configuration
+
+Copy the example file and change the token before exposing the service:
+
+```bash
+cp .env.example .env
+```
+
+Important values:
+
+- `PORT`: host and container web port. Default: `8765`.
+- `HOST`: container bind host. Use `0.0.0.0` inside containers.
+- `MARKER_WEB_TOKEN`: private web/API/MCP token.
+- `MARKER_WEB_JOB_DIR`: container job storage path. Default: `/app/data/jobs`.
+- `MARKER_WEB_FRONTEND_DIST`: built frontend path inside the image.
+- `HF_HOME`, `TORCH_HOME`, `XDG_CACHE_HOME`: mounted cache paths for model/runtime reuse.
+- `IMAGE_NAME`, `IMAGE_TAG`: local image name used by compose.
+
+## Build and Run
+
+Start Rancher Desktop first, then run:
+
+```bash
+nerdctl compose up --build
+```
+
+Open:
+
+```text
+http://localhost:8765
+```
+
+Sign in with the `MARKER_WEB_TOKEN` value from `.env`.
+
+## Health Check
+
+```bash
+curl -fsS http://localhost:8765/health
+```
+
+Expected response:
+
+```json
+{
+  "ok": true,
+  "private_mode": true
+}
+```
+
+## API Smoke Test
+
+```bash
+curl \
+  -H "Authorization: Bearer $MARKER_WEB_TOKEN" \
+  http://localhost:8765/api/info
+```
+
+## Upload Smoke Test
+
+```bash
+curl \
+  -H "Authorization: Bearer $MARKER_WEB_TOKEN" \
+  -F "file=@input/file.pdf" \
+  -F "output_format=markdown" \
+  http://localhost:8765/jobs
+```
+
+## Stop
+
+```bash
+nerdctl compose down
+```
+
+The retained jobs and model caches stay in `private-marker-data/`.
+
+## Notes
+
+- MPS/M1 GPU acceleration is not available inside the Linux container runtime. The container should be treated as a portable CPU service unless a Linux GPU runtime is configured.
+- Keep the service private. Do not expose it publicly unless licensing, authentication, storage cleanup, upload limits, and network controls have been reviewed.

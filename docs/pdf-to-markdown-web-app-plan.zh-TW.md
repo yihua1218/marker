@@ -127,6 +127,7 @@ Marker CLI 目前主要透過 logs 和 progress bars 輸出進度。MVP 可先�
 - Frontend：簡單 server-rendered page 或輕量 SPA。
 - Storage：使用可設定的本機 job 目錄。
 - Packaging：Python 標準函式庫 `zipfile` 與 `tarfile`。
+- Container runtime：使用 `nerdctl compose`、Python runtime image，以及掛載的持久化資料目錄。
 
 Job 目錄結構：
 
@@ -143,6 +144,15 @@ jobs/
       document.zip
       document.tar.gz
 ```
+
+容器化部署檔案：
+
+- `Dockerfile`：建置前端，並打包 private Marker web service。
+- `docker-compose.yml`：用 `nerdctl compose` 啟動服務、對應設定的 port，並持久化 `/app/data`。
+- `.env.example`：記錄 `PORT`、`MARKER_WEB_TOKEN`、`MARKER_WEB_JOB_DIR`、cache paths、image name、image tag 等 runtime settings。
+- `.env`：本機使用且被 git 忽略的 runtime configuration。
+
+建置、啟動、health check 與 smoke test 指令請見 [private-marker-container.zh-TW.md](./private-marker-container.zh-TW.md)。
 
 ## 安全性與可靠性
 
@@ -203,6 +213,9 @@ Marker repository 在 `pyproject.toml` 宣告程式碼授權為 `GPL-3.0-or-late
 - [ ] 加入失敗狀態與可讀錯誤訊息。
 - [ ] 加入 job 清理政策。
 - [ ] 確保上傳 PDF、輸出、壓縮檔、secrets 與 model caches 都被 git ignore。
+- [ ] 加入 private web service 的 container image build。
+- [ ] 加入 `nerdctl compose` runtime configuration。
+- [ ] 文件化 container build、run、health check 與 smoke-test 步驟。
 - [ ] 在散布前驗證 GPL 與模型授權合規。
 - [ ] 記錄 public access、第三方使用、工作用途、客戶使用或付費部署都需要重新授權審查。
 

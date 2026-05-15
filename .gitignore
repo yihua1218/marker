@@ -14,6 +14,7 @@ temp
 conversion_results
 uploads
 private_marker_jobs
+private-marker-data
 /cache
 frontend/node_modules/
 frontend/dist/

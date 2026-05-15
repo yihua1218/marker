@@ -1,0 +1,29 @@
+services:
+  private-marker-web:
+    image: ${IMAGE_NAME:-localhost/private-marker-web}:${IMAGE_TAG:-latest}
+    build: .
+    container_name: private-marker-web
+    ports:
+      - "${PORT:-8765}:${PORT:-8765}"
+    environment:
+      PORT: ${PORT:-8765}
+      HOST: ${HOST:-0.0.0.0}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8765}
+      MARKER_WEB_TOKEN: ${MARKER_WEB_TOKEN:-change-this-private-token}
+      MARKER_WEB_SECURE_COOKIE: ${MARKER_WEB_SECURE_COOKIE:-0}
+      MARKER_WEB_JOB_DIR: ${MARKER_WEB_JOB_DIR:-/app/data/jobs}
+      MARKER_WEB_FRONTEND_DIST: ${MARKER_WEB_FRONTEND_DIST:-/app/frontend/dist}
+      MARKER_WEB_MAX_UPLOAD_MB: ${MARKER_WEB_MAX_UPLOAD_MB:-100}
+      MARKER_WEB_WORKERS: ${MARKER_WEB_WORKERS:-1}
+      HF_HOME: ${HF_HOME:-/app/data/huggingface}
+      TORCH_HOME: ${TORCH_HOME:-/app/data/torch}
+      XDG_CACHE_HOME: ${XDG_CACHE_HOME:-/app/data/cache}
+    volumes:
+      - ./private-marker-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS \"http://127.0.0.1:${PORT:-8765}/health\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
