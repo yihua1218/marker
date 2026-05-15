@@ -45,6 +45,27 @@ The archive itself can be downloaded as:
 - `zip`
 - `tar.gz`
 
+## Filename Handling
+
+The service separates filenames into three forms:
+
+- `original_filename`: the browser-provided filename, preserved for display.
+- `display_stem`: a Unicode NFC-normalized, Windows-safe display name. Traditional Chinese filenames are preserved here.
+- `document_stem`: an internal ASCII storage slug with the job id prefix appended to avoid collisions.
+
+Downloads use an RFC 5987 `Content-Disposition` header with both `filename` and `filename*`, so modern browsers on Windows should receive Traditional Chinese filenames correctly.
+
+Archive contents use `display_stem` as the package root and output filename. For example, uploading `測試文件.pdf` and choosing Markdown produces archive entries like:
+
+```text
+測試文件/
+  測試文件.md
+  metadata.json
+  images/
+```
+
+Characters invalid on Windows (`<>:"/\\|?*` and control characters) are replaced with `-`, and reserved DOS device names fall back to `document`.
+
 ## Endpoints
 
 ### `GET /api/info`
@@ -108,8 +129,9 @@ Response:
 ```json
 {
   "id": "job-id",
-  "original_filename": "document.pdf",
-  "document_stem": "document",
+  "original_filename": "測試文件.pdf",
+  "document_stem": "document-jobprefix",
+  "display_stem": "測試文件",
   "output_format": "markdown",
   "status": "queued",
   "stage": "Queued",

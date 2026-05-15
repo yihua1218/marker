@@ -4,6 +4,7 @@ import re
 import shutil
 import tarfile
 import time
+import unicodedata
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Literal, Optional
+from urllib.parse import quote
 
 import click
 from fastapi import (
@@ -62,6 +64,7 @@ class Job(BaseModel):
     id: str
     original_filename: str
     document_stem: str
+    display_stem: str
     output_format: Literal["markdown", "json", "html", "chunks"]
     status: Literal["queued", "running", "complete", "failed"]
     stage: str
@@ -94,6 +97,7 @@ class JobStore:
                 try:
                     payload = json.loads(job_path.read_text(encoding=settings.OUTPUT_ENCODING))
                     payload.setdefault("output_format", "markdown")
+                    payload.setdefault("display_stem", payload.get("document_stem", "document"))
                     job = Job.model_validate(payload)
                     if job.status in {"queued", "running"}:
                         job = job.model_copy(
@@ -201,10 +205,57 @@ def dist_index() -> Optional[FileResponse]:
     return None
 
 
+def content_disposition(filename: str) -> str:
+    ascii_fallback = safe_stem(filename) or "download"
+    suffix = "".join(Path(filename).suffixes)
+    if suffix and not ascii_fallback.endswith(suffix):
+        ascii_fallback = f"{ascii_fallback}{suffix}"
+    encoded = quote(filename, safe="")
+    return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
+
+
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
+
+
+def display_stem(filename: str) -> str:
+    stem = unicodedata.normalize("NFC", Path(filename).stem)
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "-", stem)
+    stem = stem.strip(" .-")
+    if not stem or stem.upper() in WINDOWS_RESERVED_NAMES:
+        return "document"
+    return stem[:120]
+
+
 def safe_stem(filename: str) -> str:
     stem = Path(filename).stem
-    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-")
-    return stem or "document"
+    ascii_stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
+    ascii_stem = re.sub(r"[^A-Za-z0-9._-]+", "-", ascii_stem).strip(".-")
+    if not ascii_stem or ascii_stem.upper() in WINDOWS_RESERVED_NAMES:
+        ascii_stem = "document"
+    return ascii_stem[:80]
 
 
 def validate_upload_bytes(filename: str, content: bytes):
@@ -230,7 +281,7 @@ def rewrite_image_references(text: str, image_names: list[str]) -> str:
     return text
 
 
-def save_private_output(rendered, output_dir: Path, document_stem: str, output_format: str) -> Path:
+def save_private_output(rendered, output_dir: Path, output_stem: str, output_format: str) -> Path:
     text, ext, images = text_from_rendered(rendered)
 
     images_dir = output_dir / "images"
@@ -242,7 +293,7 @@ def save_private_output(rendered, output_dir: Path, document_stem: str, output_f
         text = rewrite_image_references(text, image_names)
     text = text.encode(settings.OUTPUT_ENCODING, errors="replace").decode(settings.OUTPUT_ENCODING)
 
-    output_path = output_dir / f"{document_stem}.{ext}"
+    output_path = output_dir / f"{output_stem}.{ext}"
     output_path.write_text(text, encoding=settings.OUTPUT_ENCODING)
 
     metadata = {
@@ -263,16 +314,17 @@ def save_private_output(rendered, output_dir: Path, document_stem: str, output_f
     return output_path
 
 
-def make_archives(output_dir: Path, archive_dir: Path, document_stem: str) -> tuple[Path, Path]:
+def make_archives(output_dir: Path, archive_dir: Path, storage_stem: str, package_stem: str) -> tuple[Path, Path]:
     archive_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = archive_dir / f"{document_stem}.zip"
-    targz_path = archive_dir / f"{document_stem}.tar.gz"
-    package_root = document_stem
+    zip_path = archive_dir / f"{storage_stem}.zip"
+    targz_path = archive_dir / f"{storage_stem}.tar.gz"
+    package_root = package_stem
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in output_dir.rglob("*"):
             if path.is_file():
-                zf.write(path, Path(package_root) / path.relative_to(output_dir))
+                arcname = (Path(package_root) / path.relative_to(output_dir)).as_posix()
+                zf.write(path, arcname)
 
     with tarfile.open(targz_path, "w:gz") as tf:
         for path in output_dir.rglob("*"):
@@ -282,7 +334,7 @@ def make_archives(output_dir: Path, archive_dir: Path, document_stem: str) -> tu
     return zip_path, targz_path
 
 
-def run_conversion(job_id: str, input_path: Path, document_stem: str, output_format: str):
+def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_stem: str, output_format: str):
     jobs: JobStore = app_data["jobs"]
     job_dir = JOB_ROOT / job_id
     output_dir = job_dir / "output"
@@ -305,10 +357,10 @@ def run_conversion(job_id: str, input_path: Path, document_stem: str, output_for
         rendered = converter(str(input_path))
 
         jobs.update(job_id, stage="Normalizing output", progress=85)
-        save_private_output(rendered, output_dir, document_stem, output_format)
+        save_private_output(rendered, output_dir, package_stem, output_format)
 
         jobs.update(job_id, stage="Packaging archives", progress=92)
-        zip_path, targz_path = make_archives(output_dir, archive_dir, document_stem)
+        zip_path, targz_path = make_archives(output_dir, archive_dir, storage_stem, package_stem)
 
         jobs.update(
             job_id,
@@ -533,7 +585,8 @@ async def create_job(
 
     job_id = uuid.uuid4().hex
     original_filename = file.filename or "document.pdf"
-    document_stem = safe_stem(original_filename)
+    document_stem = f"{safe_stem(original_filename)}-{job_id[:8]}"
+    user_display_stem = display_stem(original_filename)
     input_suffix = Path(original_filename).suffix.lower() or ".pdf"
     job_dir = JOB_ROOT / job_id
     input_dir = job_dir / "input"
@@ -547,6 +600,7 @@ async def create_job(
         id=job_id,
         original_filename=original_filename,
         document_stem=document_stem,
+        display_stem=user_display_stem,
         output_format=output_format,  # type: ignore[arg-type]
         status="queued",
         stage="Queued",
@@ -555,7 +609,7 @@ async def create_job(
         updated_at=time.time(),
     )
     app_data["jobs"].add(job)
-    executor.submit(run_conversion, job_id, input_path, document_stem, output_format)
+    executor.submit(run_conversion, job_id, input_path, document_stem, user_display_stem, output_format)
     return job
 
 
@@ -613,10 +667,11 @@ async def download_job(
 
     archive_path = Path(job.zip_path if format == "zip" else job.targz_path)
     media_type = "application/zip" if format == "zip" else "application/gzip"
+    download_filename = f"{job.display_stem}.{format}"
     return FileResponse(
         archive_path,
         media_type=media_type,
-        filename=archive_path.name,
+        headers={"Content-Disposition": content_disposition(download_filename)},
     )
 
 

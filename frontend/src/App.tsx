@@ -41,6 +41,7 @@ interface Job {
   id: string;
   original_filename: string;
   document_stem: string;
+  display_stem: string;
   output_format: OutputFormat;
   status: JobStatus;
   stage: string;
@@ -109,7 +110,7 @@ function App() {
   const [loadingJobs, setLoadingJobs] = useState(false);
 
   const selectedJob = useMemo(
-    () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0],
+    () => jobs.find((job) => job.id === selectedJobId) ?? null,
     [jobs, selectedJobId],
   );
 
@@ -123,10 +124,13 @@ function App() {
     setLoadingJobs(true);
     try {
       const res = await axios.get<{ jobs: Job[] }>('/jobs');
-      setJobs(res.data.jobs);
-      if (!selectedJobId && res.data.jobs.length > 0) {
-        setSelectedJobId(res.data.jobs[0].id);
-      }
+      const nextJobs = res.data.jobs;
+      setJobs(nextJobs);
+      setSelectedJobId((current) => {
+        if (nextJobs.length === 0) return null;
+        if (current && nextJobs.some((job) => job.id === current)) return current;
+        return nextJobs[0].id;
+      });
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 401) {
         setAuth((current) => current ? { ...current, authenticated: false } : current);
@@ -376,7 +380,9 @@ function App() {
                   ) : (
                     <Space direction="vertical" size={14} style={{ width: '100%' }}>
                       <div>
-                        <Text strong>{selectedJob.original_filename}</Text>
+                        <Text strong>{selectedJob.display_stem || selectedJob.original_filename}</Text>
+                        <br />
+                        <Text type="secondary">{selectedJob.original_filename}</Text>
                         <br />
                         <Text type="secondary">
                           {selectedJob.output_format} · Created {formatTime(selectedJob.created_at)}
@@ -427,7 +433,7 @@ function App() {
                       onClick={() => setSelectedJobId(job.id)}
                     >
                       <div className="job-row-name">
-                        <Text strong ellipsis>{job.original_filename}</Text>
+                        <Text strong ellipsis>{job.display_stem || job.original_filename}</Text>
                         <Tag color={statusColor[job.status]}>{job.status}</Tag>
                       </div>
                       <Progress percent={job.progress} size="small" showInfo={false} />

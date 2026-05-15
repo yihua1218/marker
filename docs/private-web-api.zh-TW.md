@@ -45,6 +45,27 @@ Client 可用兩種方式驗證：
 - `zip`
 - `tar.gz`
 
+## 檔名處理
+
+服務會將檔名分成三種：
+
+- `original_filename`：瀏覽器提供的原始檔名，用於顯示。
+- `display_stem`：Unicode NFC 正規化後、Windows-safe 的顯示名稱。繁體中文檔名會保留在這裡。
+- `document_stem`：內部儲存用的 ASCII slug，並附加 job id 前綴以避免撞名。
+
+下載時會使用 RFC 5987 `Content-Disposition` header，同時提供 `filename` 與 `filename*`，讓 Windows 上的現代瀏覽器能正確取得繁體中文檔名。
+
+壓縮檔內容會使用 `display_stem` 作為 package root 與輸出檔名。例如上傳 `測試文件.pdf` 並選擇 Markdown，壓縮檔內會類似：
+
+```text
+測試文件/
+  測試文件.md
+  metadata.json
+  images/
+```
+
+Windows 不允許的字元 (`<>:"/\\|?*` 與控制字元) 會被替換成 `-`，保留裝置名稱則 fallback 成 `document`。
+
 ## Endpoints
 
 ### `GET /api/info`
