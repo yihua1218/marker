@@ -1,6 +1,6 @@
 # Private Marker 容器設定
 
-這個服務可以透過 repository 內的 `Dockerfile`、`docker-compose.yml`、`.env`、`.env.example` 使用 `nerdctl` 和 `nerdctl compose` 啟動。
+這個服務可以透過 repository 內的 `Dockerfile`、`docker-compose.yml`、`.env`、`.env.example` 使用 Docker Compose 或 `nerdctl compose` 啟動。
 
 ## 檔案
 
@@ -30,11 +30,19 @@ cp .env.example .env
 
 ## 建置與啟動
 
-先啟動 Rancher Desktop，然後執行：
+如果你使用 Docker Desktop 或其他 Docker-compatible runtime，執行：
+
+```bash
+docker compose up --build
+```
+
+如果你使用 Rancher Desktop 搭配 containerd，執行：
 
 ```bash
 nerdctl compose up --build
 ```
+
+兩個指令都會在需要時從 `Dockerfile` 建立 image、建立 `private-marker-web` 服務、把 `./private-marker-data` 掛載到 `/app/data`，並用設定的 `PORT` 啟動 web server。
 
 開啟：
 
@@ -43,6 +51,22 @@ http://localhost:8765
 ```
 
 用 `.env` 裡的 `MARKER_WEB_TOKEN` 登入。
+
+## 只建立 Image
+
+如果只想建立 image，不啟動服務：
+
+```bash
+docker build -t localhost/private-marker-web:latest .
+```
+
+使用 `nerdctl`：
+
+```bash
+nerdctl build -t localhost/private-marker-web:latest .
+```
+
+如果你在 `.env` 修改了 `IMAGE_NAME` 或 `IMAGE_TAG`，請用相同值作為 image tag。
 
 ## Health Check
 
@@ -72,12 +96,20 @@ curl \
 ```bash
 curl \
   -H "Authorization: Bearer $MARKER_WEB_TOKEN" \
-  -F "file=@input/file.pdf" \
+  -F "file=@/path/to/document.pdf" \
   -F "output_format=markdown" \
   http://localhost:8765/jobs
 ```
 
 ## 停止
+
+使用 Docker Compose：
+
+```bash
+docker compose down
+```
+
+使用 `nerdctl compose`：
 
 ```bash
 nerdctl compose down

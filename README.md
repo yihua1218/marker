@@ -95,6 +95,10 @@ pip install marker-pdf[full]
 
 # Usage
 
+## Private Web Service
+
+This repository also includes a private Marker web service with Docker/Compose setup, API docs, and MCP integration notes. Start with [docs/README.md](docs/README.md) or go directly to [docs/private-marker-container.md](docs/private-marker-container.md) for container build and run instructions.
+
 First, some configuration:
 
 - Your torch device will be automatically detected, but you can override this.  For example, `TORCH_DEVICE=cuda`.

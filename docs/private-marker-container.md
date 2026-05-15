@@ -1,6 +1,6 @@
 # Private Marker Container Setup
 
-This service can run with `nerdctl` and `nerdctl compose` through the repository `Dockerfile`, `docker-compose.yml`, `.env`, and `.env.example` files.
+This service can run with Docker Compose or with `nerdctl compose` through the repository `Dockerfile`, `docker-compose.yml`, `.env`, and `.env.example` files.
 
 ## Files
 
@@ -30,11 +30,19 @@ Important values:
 
 ## Build and Run
 
-Start Rancher Desktop first, then run:
+Use Docker Compose if you are running Docker Desktop or another Docker-compatible runtime:
+
+```bash
+docker compose up --build
+```
+
+Use `nerdctl compose` if you are running Rancher Desktop with containerd:
 
 ```bash
 nerdctl compose up --build
 ```
+
+Both commands build the image from `Dockerfile` when needed, create the `private-marker-web` service, mount `./private-marker-data` into `/app/data`, and start the web server on the configured `PORT`.
 
 Open:
 
@@ -43,6 +51,22 @@ http://localhost:8765
 ```
 
 Sign in with the `MARKER_WEB_TOKEN` value from `.env`.
+
+## Build Only
+
+To build the image without starting the service:
+
+```bash
+docker build -t localhost/private-marker-web:latest .
+```
+
+With `nerdctl`:
+
+```bash
+nerdctl build -t localhost/private-marker-web:latest .
+```
+
+If you changed `IMAGE_NAME` or `IMAGE_TAG` in `.env`, use those values in the image tag.
 
 ## Health Check
 
@@ -72,12 +96,20 @@ curl \
 ```bash
 curl \
   -H "Authorization: Bearer $MARKER_WEB_TOKEN" \
-  -F "file=@input/file.pdf" \
+  -F "file=@/path/to/document.pdf" \
   -F "output_format=markdown" \
   http://localhost:8765/jobs
 ```
 
 ## Stop
+
+With Docker Compose:
+
+```bash
+docker compose down
+```
+
+With `nerdctl compose`:
 
 ```bash
 nerdctl compose down

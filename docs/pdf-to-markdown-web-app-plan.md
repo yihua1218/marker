@@ -1,5 +1,7 @@
 # PDF to Markdown Web App Plan
 
+Status note: this is a planning and implementation-history document. For current run, API, container, and integration instructions, start with [docs/README.md](./README.md).
+
 ## Goal
 
 Build a small private web application that converts uploaded PDF files into Markdown using Marker, shows real-time conversion progress, and packages the generated Markdown plus extracted images for download.

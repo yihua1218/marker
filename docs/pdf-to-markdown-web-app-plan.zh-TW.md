@@ -1,5 +1,7 @@
 # PDF 轉 Markdown 網站規劃
 
+狀態說明：這是規劃與實作歷史文件。若要查看目前的啟動、API、容器與整合方式，請先看 [docs/README.md](./README.md)。
+
 ## 目標
 
 建立一個小型私有網站，讓使用者上傳 PDF，透過 Marker 轉換成 Markdown，轉換期間顯示進度條，並在完成後把 Markdown 與抽出的圖片一起打包下載。
