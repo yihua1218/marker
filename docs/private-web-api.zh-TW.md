@@ -19,6 +19,12 @@ Client 可用兩種方式驗證：
 
 如果沒有設定 `MARKER_WEB_TOKEN`，server 只允許 loopback access。
 
+## Job 恢復與 Log
+
+Job metadata 與上傳的 input file 會保留在 `MARKER_WEB_JOB_DIR`。Server 啟動時，原本是 `queued` 或 `running` 的 jobs 會被移回 `queued`，並且預設重新送進 worker pool。只有在你想手動檢查或手動 retry 時，才設定 `MARKER_WEB_AUTO_RESUME_JOBS=0`。
+
+Server 會透過 Marker logger 記錄 job 載入、重新排隊、送進 executor、開始轉換、完成轉換、建立 archive、input 缺失、retry 與失敗事件。Log 會包含 job id 與除錯需要的路徑。
+
 ## 支援輸入格式
 
 支援上傳副檔名：
@@ -114,6 +120,10 @@ curl \
 
 取得單一 job 狀態。可輪詢此 endpoint，直到 `status` 為 `complete` 或 `failed`。
 
+### `POST /jobs/{job_id}/retry`
+
+使用保留的 input file 重新排入 completed 或 failed job。已經是 `queued` 或 `running` 的 job 會回傳 `409`。
+
 ### `GET /jobs/{job_id}/download?format=zip`
 
 下載產生的壓縮檔。
@@ -145,6 +155,9 @@ Running jobs 不允許刪除。
 - `marker_web_list_jobs`
   - Input：`base_url`。
   - Output：已保留 jobs。
+- `marker_web_retry_job`
+  - Input：`base_url`、`job_id`。
+  - Output：重新排入的 job object。
 - `marker_web_download_job`
   - Input：`base_url`、`job_id`、archive `format`、目的路徑。
   - Output：已儲存 archive 路徑。

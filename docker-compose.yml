@@ -15,6 +15,7 @@ services:
       MARKER_WEB_FRONTEND_DIST: ${MARKER_WEB_FRONTEND_DIST:-/app/frontend/dist}
       MARKER_WEB_MAX_UPLOAD_MB: ${MARKER_WEB_MAX_UPLOAD_MB:-100}
       MARKER_WEB_WORKERS: ${MARKER_WEB_WORKERS:-1}
+      MARKER_WEB_AUTO_RESUME_JOBS: ${MARKER_WEB_AUTO_RESUME_JOBS:-1}
       HF_HOME: ${HF_HOME:-/app/data/huggingface}
       TORCH_HOME: ${TORCH_HOME:-/app/data/torch}
       XDG_CACHE_HOME: ${XDG_CACHE_HOME:-/app/data/cache}

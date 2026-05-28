@@ -31,14 +31,17 @@ from pydantic import BaseModel
 
 from marker.config.parser import ConfigParser
 from marker.converters.pdf import PdfConverter
+from marker.logger import get_logger
 from marker.models import create_model_dict
 from marker.output import convert_if_not_rgb, text_from_rendered
 from marker.settings import settings
 
 
+logger = get_logger()
 JOB_ROOT = Path(os.environ.get("MARKER_WEB_JOB_DIR", "private_marker_jobs"))
 FRONTEND_DIST = Path(os.environ.get("MARKER_WEB_FRONTEND_DIST", "frontend/dist"))
 MAX_UPLOAD_BYTES = int(os.environ.get("MARKER_WEB_MAX_UPLOAD_MB", "100")) * 1024 * 1024
+AUTO_RESUME_JOBS = os.environ.get("MARKER_WEB_AUTO_RESUME_JOBS", "1").lower() in {"1", "true", "yes"}
 SESSION_COOKIE = "marker_web_token"
 ALLOWED_ARCHIVE_FORMATS = {"zip", "tar.gz"}
 SUPPORTED_OUTPUT_FORMATS = {"markdown", "json", "html", "chunks"}
@@ -93,6 +96,8 @@ class JobStore:
     def load(self):
         with self._lock:
             self._jobs.clear()
+            loaded_count = 0
+            resumed_count = 0
             for job_path in JOB_ROOT.glob("*/job.json"):
                 try:
                     payload = json.loads(job_path.read_text(encoding=settings.OUTPUT_ENCODING))
@@ -102,16 +107,27 @@ class JobStore:
                     if job.status in {"queued", "running"}:
                         job = job.model_copy(
                             update={
-                                "status": "failed",
-                                "stage": "Interrupted",
-                                "error": "The server stopped before this conversion finished.",
+                                "status": "queued",
+                                "stage": "Queued for resume",
+                                "progress": min(job.progress, 10),
+                                "error": None,
                                 "updated_at": time.time(),
                             }
                         )
                         self._persist(job)
+                        resumed_count += 1
+                        logger.info("Requeued interrupted private web job %s from %s", job.id, job_path)
                     self._jobs[job.id] = job
+                    loaded_count += 1
                 except Exception:
+                    logger.exception("Failed to load private web job metadata from %s", job_path)
                     continue
+            logger.info(
+                "Loaded %s private web jobs from %s; requeued %s interrupted jobs",
+                loaded_count,
+                JOB_ROOT,
+                resumed_count,
+            )
 
     def add(self, job: Job):
         with self._lock:
@@ -153,7 +169,17 @@ app_data = {"jobs": JobStore()}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     JOB_ROOT.mkdir(parents=True, exist_ok=True)
-    app_data["jobs"].load()
+    jobs: JobStore = app_data["jobs"]
+    jobs.load()
+    submitted_count = 0
+    for job in jobs.list():
+        if AUTO_RESUME_JOBS and job.status == "queued":
+            submit_job(job)
+            submitted_count += 1
+    if AUTO_RESUME_JOBS:
+        logger.info("Submitted %s queued private web jobs on startup", submitted_count)
+    else:
+        logger.warning("Automatic private web job resume is disabled; queued jobs require manual retry")
     yield
     executor.shutdown(wait=False, cancel_futures=False)
 
@@ -334,6 +360,48 @@ def make_archives(output_dir: Path, archive_dir: Path, storage_stem: str, packag
     return zip_path, targz_path
 
 
+def job_input_path(job: Job) -> Path:
+    suffix = Path(job.original_filename).suffix.lower() or ".pdf"
+    return JOB_ROOT / job.id / "input" / f"{job.document_stem}{suffix}"
+
+
+def submit_job(job: Job):
+    input_path = job_input_path(job)
+    if not input_path.exists():
+        logger.error("Cannot submit private web job %s because input is missing: %s", job.id, input_path)
+        app_data["jobs"].update(
+            job.id,
+            status="failed",
+            stage="Failed",
+            progress=100,
+            error=f"Input file is missing: {input_path}",
+        )
+        return
+
+    logger.info(
+        "Submitting private web job %s for conversion: input=%s output_format=%s",
+        job.id,
+        input_path,
+        job.output_format,
+    )
+    future = executor.submit(
+        run_conversion,
+        job.id,
+        input_path,
+        job.document_stem,
+        job.display_stem,
+        job.output_format,
+    )
+    future.add_done_callback(lambda done: log_job_future_result(job.id, done))
+
+
+def log_job_future_result(job_id: str, future):
+    try:
+        future.result()
+    except Exception:
+        logger.exception("Private web job %s worker crashed outside conversion error handling", job_id)
+
+
 def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_stem: str, output_format: str):
     jobs: JobStore = app_data["jobs"]
     job_dir = JOB_ROOT / job_id
@@ -342,8 +410,16 @@ def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_ste
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        started_at = time.time()
+        logger.info(
+            "Starting private web job %s: input=%s output_format=%s",
+            job_id,
+            input_path,
+            output_format,
+        )
         jobs.update(job_id, status="running", stage="Loading models", progress=10)
         models = create_model_dict()
+        logger.info("Private web job %s loaded models", job_id)
 
         jobs.update(job_id, stage=f"Converting to {output_format}", progress=20)
         config_parser = ConfigParser({"output_format": output_format, "disable_multiprocessing": True})
@@ -355,6 +431,7 @@ def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_ste
             llm_service=config_parser.get_llm_service(),
         )
         rendered = converter(str(input_path))
+        logger.info("Private web job %s conversion finished; saving output", job_id)
 
         jobs.update(job_id, stage="Normalizing output", progress=85)
         save_private_output(rendered, output_dir, package_stem, output_format)
@@ -371,7 +448,15 @@ def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_ste
             zip_path=str(zip_path),
             targz_path=str(targz_path),
         )
+        logger.info(
+            "Completed private web job %s in %.2fs: zip=%s targz=%s",
+            job_id,
+            time.time() - started_at,
+            zip_path,
+            targz_path,
+        )
     except Exception as exc:
+        logger.exception("Private web job %s failed", job_id)
         jobs.update(job_id, status="failed", stage="Failed", error=str(exc), progress=100)
 
 
@@ -609,7 +694,7 @@ async def create_job(
         updated_at=time.time(),
     )
     app_data["jobs"].add(job)
-    executor.submit(run_conversion, job_id, input_path, document_stem, user_display_stem, output_format)
+    submit_job(job)
     return job
 
 
@@ -632,6 +717,36 @@ async def get_job(
 ):
     require_auth(request, marker_web_token_cookie, authorization)
     return app_data["jobs"].get(job_id)
+
+
+@app.post("/jobs/{job_id}/retry")
+async def retry_job(
+    request: Request,
+    job_id: str,
+    marker_web_token_cookie: Annotated[Optional[str], Cookie(alias=SESSION_COOKIE)] = None,
+    authorization: Annotated[Optional[str], Header()] = None,
+):
+    require_auth(request, marker_web_token_cookie, authorization)
+    jobs: JobStore = app_data["jobs"]
+    job = jobs.get(job_id)
+    if job.status in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="Job is already running")
+    if not job_input_path(job).exists():
+        raise HTTPException(status_code=409, detail="Job input file is missing")
+
+    logger.info("Retrying private web job %s", job.id)
+    job = jobs.update(
+        job.id,
+        status="queued",
+        stage="Queued",
+        progress=0,
+        output_dir=None,
+        zip_path=None,
+        targz_path=None,
+        error=None,
+    )
+    submit_job(job)
+    return job
 
 
 @app.delete("/jobs/{job_id}")
@@ -699,6 +814,7 @@ async def api_info():
             "create_job": "POST /jobs",
             "list_jobs": "GET /jobs",
             "get_job": "GET /jobs/{job_id}",
+            "retry_job": "POST /jobs/{job_id}/retry",
             "download_job": "GET /jobs/{job_id}/download?format=zip",
             "delete_job": "DELETE /jobs/{job_id}",
             "openapi": "GET /openapi.json",

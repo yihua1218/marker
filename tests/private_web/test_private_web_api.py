@@ -107,3 +107,31 @@ def test_job_store_persists_and_migrates_output_format(tmp_path: Path, monkeypat
     migrated.load()
     assert migrated.get("old").output_format == "markdown"
     assert migrated.get("old").display_stem == "old"
+
+
+def test_job_store_requeues_in_progress_jobs_on_load(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(private_web, "JOB_ROOT", tmp_path)
+    running_dir = tmp_path / "running"
+    running_dir.mkdir()
+    running_payload = {
+        "id": "running",
+        "original_filename": "report.pdf",
+        "document_stem": "report-running",
+        "display_stem": "report",
+        "output_format": "markdown",
+        "status": "running",
+        "stage": "Converting to markdown",
+        "progress": 20,
+        "created_at": 1,
+        "updated_at": 1,
+    }
+    (running_dir / "job.json").write_text(json.dumps(running_payload), encoding="utf-8")
+
+    loaded = JobStore()
+    loaded.load()
+
+    job = loaded.get("running")
+    assert job.status == "queued"
+    assert job.stage == "Queued for resume"
+    assert job.progress == 10
+    assert job.error is None

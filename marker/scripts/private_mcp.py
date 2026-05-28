@@ -50,6 +50,9 @@ class MarkerWebClient:
     def get_job(self, job_id: str) -> Any:
         return self.request("GET", f"/jobs/{job_id}")
 
+    def retry_job(self, job_id: str) -> Any:
+        return self.request("POST", f"/jobs/{job_id}/retry")
+
     def delete_job(self, job_id: str) -> Any:
         return self.request("DELETE", f"/jobs/{job_id}")
 
@@ -146,6 +149,15 @@ def tool_schema() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "marker_web_retry_job",
+            "description": "Retry a completed or failed Marker conversion job using its retained input file.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["job_id"],
+                "properties": {"job_id": {"type": "string"}},
+            },
+        },
+        {
             "name": "marker_web_delete_job",
             "description": "Delete a completed or failed Marker conversion job.",
             "inputSchema": {
@@ -171,6 +183,7 @@ class StdioMCPServer:
             "marker_web_download_job": lambda args: self.client.download_job(
                 args["job_id"], args.get("archive_format", "zip"), args["destination_path"]
             ),
+            "marker_web_retry_job": lambda args: self.client.retry_job(args["job_id"]),
             "marker_web_delete_job": lambda args: self.client.delete_job(args["job_id"]),
         }
 

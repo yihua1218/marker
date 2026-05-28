@@ -25,6 +25,7 @@ Important values:
 - `MARKER_WEB_TOKEN`: private web/API/MCP token.
 - `MARKER_WEB_JOB_DIR`: container job storage path. Default: `/app/data/jobs`.
 - `MARKER_WEB_FRONTEND_DIST`: built frontend path inside the image.
+- `MARKER_WEB_AUTO_RESUME_JOBS`: resubmit retained queued/running jobs on startup. Default: `1`.
 - `HF_HOME`, `TORCH_HOME`, `XDG_CACHE_HOME`: mounted cache paths for model/runtime reuse.
 - `IMAGE_NAME`, `IMAGE_TAG`: local image name used by compose.
 

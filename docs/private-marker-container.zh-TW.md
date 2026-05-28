@@ -25,6 +25,7 @@ cp .env.example .env
 - `MARKER_WEB_TOKEN`：private web/API/MCP 共用 token。
 - `MARKER_WEB_JOB_DIR`：container 內 job storage 路徑。預設 `/app/data/jobs`。
 - `MARKER_WEB_FRONTEND_DIST`：image 內建置完成的前端路徑。
+- `MARKER_WEB_AUTO_RESUME_JOBS`：啟動時重新送出已保留的 queued/running jobs。預設 `1`。
 - `HF_HOME`、`TORCH_HOME`、`XDG_CACHE_HOME`：掛載的模型與 runtime cache 路徑。
 - `IMAGE_NAME`、`IMAGE_TAG`：compose 使用的本機 image 名稱。
 

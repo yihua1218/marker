@@ -12,6 +12,7 @@ def test_tool_schema_contains_required_tools():
         "marker_web_get_job",
         "marker_web_create_job",
         "marker_web_download_job",
+        "marker_web_retry_job",
         "marker_web_delete_job",
     }.issubset(names)
 

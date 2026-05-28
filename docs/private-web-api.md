@@ -19,6 +19,12 @@ Clients can authenticate in either of two ways:
 
 If `MARKER_WEB_TOKEN` is not set, the server only allows loopback access.
 
+## Job Recovery and Logging
+
+Job metadata and uploaded input files are retained under `MARKER_WEB_JOB_DIR`. On startup, jobs that were `queued` or `running` are moved back to `queued` and, by default, submitted to the worker pool again. Set `MARKER_WEB_AUTO_RESUME_JOBS=0` only if you want to inspect or retry those jobs manually.
+
+The server logs job load, requeue, submit, conversion start, conversion finish, archive creation, missing input, retry, and failure events through the Marker logger. These logs include the job id and paths needed to debug stuck or failed work.
+
 ## Supported Inputs
 
 Supported upload extensions:
@@ -157,6 +163,10 @@ curl -H 'Authorization: Bearer your-private-token' http://127.0.0.1:8765/jobs
 
 Returns a single job status. Poll this endpoint until `status` is `complete` or `failed`.
 
+### `POST /jobs/{job_id}/retry`
+
+Requeues a completed or failed job using the retained input file. Jobs that are already `queued` or `running` return `409`.
+
 ### `GET /jobs/{job_id}/download?format=zip`
 
 Downloads the generated archive.
@@ -197,6 +207,9 @@ The implemented stdio MCP server wraps this API with these tools:
 - `marker_web_list_jobs`
   - Input: `base_url`.
   - Output: retained jobs.
+- `marker_web_retry_job`
+  - Input: `base_url`, `job_id`.
+  - Output: requeued job object.
 - `marker_web_download_job`
   - Input: `base_url`, `job_id`, archive `format`, destination path.
   - Output: saved archive path.

@@ -45,6 +45,10 @@ MARKER_WEB_TOKEN=your-private-token \
     - `job_id`
     - `archive_format`: `zip` or `tar.gz`
     - `destination_path`
+- `marker_web_retry_job`
+  - Retries a completed or failed job using its retained input file.
+  - Arguments:
+    - `job_id`
 - `marker_web_delete_job`
   - Deletes a completed or failed job.
 
