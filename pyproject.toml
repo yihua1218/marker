@@ -44,6 +44,7 @@ openpyxl = {version = "^3.1.5", optional = true}
 python-pptx = {version = "^1.0.2", optional = true}
 ebooklib = {version = "^0.18", optional = true}
 weasyprint = {version = "^63.1", optional = true}
+docling = {version = "^2.96.1", extras = ["easyocr"], optional = true}
 openai = "^1.65.2"
 
 [tool.poetry.group.dev.dependencies]
@@ -63,7 +64,8 @@ latex2mathml = "^3.77.0"
 playwright = "^1.49.1"
 
 [tool.poetry.extras]
-full = ["mammoth", "openpyxl", "python-pptx", "ebooklib", "weasyprint"]
+docling = ["docling"]
+full = ["mammoth", "openpyxl", "python-pptx", "ebooklib", "weasyprint", "docling"]
 
 [tool.poetry.scripts]
 marker = "marker.scripts.convert:convert_cli"

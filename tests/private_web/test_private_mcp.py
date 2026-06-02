@@ -15,6 +15,8 @@ def test_tool_schema_contains_required_tools():
         "marker_web_retry_job",
         "marker_web_delete_job",
     }.issubset(names)
+    create_job = next(tool for tool in tool_schema() if tool["name"] == "marker_web_create_job")
+    assert create_job["inputSchema"]["properties"]["conversion_engine"]["enum"] == ["marker", "docling", "auto"]
 
 
 def test_mcp_initialize_and_tools_list():

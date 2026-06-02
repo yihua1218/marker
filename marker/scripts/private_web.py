@@ -34,6 +34,7 @@ from marker.converters.pdf import PdfConverter
 from marker.logger import get_logger
 from marker.models import create_model_dict
 from marker.output import convert_if_not_rgb, text_from_rendered
+from marker.pipelines.pdf_conversion import DocumentConversionPipeline
 from marker.settings import settings
 
 
@@ -45,6 +46,9 @@ AUTO_RESUME_JOBS = os.environ.get("MARKER_WEB_AUTO_RESUME_JOBS", "1").lower() in
 SESSION_COOKIE = "marker_web_token"
 ALLOWED_ARCHIVE_FORMATS = {"zip", "tar.gz"}
 SUPPORTED_OUTPUT_FORMATS = {"markdown", "json", "html", "chunks"}
+SUPPORTED_CONVERSION_ENGINES = {"marker", "docling", "auto"}
+DOCLING_OUTPUT_FORMATS = {"markdown", "json", "html"}
+AUTO_PIPELINE_OUTPUT_FORMATS = {"markdown"}
 SUPPORTED_INPUT_EXTENSIONS = {
     ".pdf",
     ".png",
@@ -69,6 +73,7 @@ class Job(BaseModel):
     document_stem: str
     display_stem: str
     output_format: Literal["markdown", "json", "html", "chunks"]
+    conversion_engine: Literal["marker", "docling", "auto"] = "marker"
     status: Literal["queued", "running", "complete", "failed"]
     stage: str
     progress: int
@@ -102,6 +107,7 @@ class JobStore:
                 try:
                     payload = json.loads(job_path.read_text(encoding=settings.OUTPUT_ENCODING))
                     payload.setdefault("output_format", "markdown")
+                    payload.setdefault("conversion_engine", "marker")
                     payload.setdefault("display_stem", payload.get("document_stem", "document"))
                     job = Job.model_validate(payload)
                     if job.status in {"queued", "running"}:
@@ -340,6 +346,59 @@ def save_private_output(rendered, output_dir: Path, output_stem: str, output_for
     return output_path
 
 
+def save_docling_output(input_path: Path, output_dir: Path, output_stem: str, output_format: str) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pipeline = DocumentConversionPipeline()
+    document = pipeline.convert_with_docling(str(input_path))
+
+    metadata = {
+        "conversion_engine": "docling",
+        "generated_at": time.time(),
+        "output_format": output_format,
+    }
+
+    if output_format == "markdown":
+        output_path = output_dir / f"{output_stem}.md"
+        output_path.write_text(document.export_to_markdown(), encoding=settings.OUTPUT_ENCODING)
+        metadata["output_extension"] = "md"
+    elif output_format == "html":
+        output_path = output_dir / f"{output_stem}.html"
+        output_path.write_text(document.export_to_html(), encoding=settings.OUTPUT_ENCODING)
+        metadata["output_extension"] = "html"
+    elif output_format == "json":
+        output_path = output_dir / f"{output_stem}.json"
+        document.save_as_json(output_path, indent=2)
+        metadata["output_extension"] = "json"
+    else:
+        raise ValueError("Docling supports markdown, json, and html output formats")
+
+    (output_dir / "metadata.json").write_text(
+        json.dumps(metadata, indent=2), encoding=settings.OUTPUT_ENCODING
+    )
+    return output_path
+
+
+def save_auto_pipeline_output(input_path: Path, output_dir: Path, output_stem: str) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pipeline = DocumentConversionPipeline()
+    markdown, pipeline_metadata = pipeline.process_pdf(str(input_path))
+
+    output_path = output_dir / f"{output_stem}.md"
+    output_path.write_text(markdown, encoding=settings.OUTPUT_ENCODING)
+
+    metadata = {
+        "conversion_engine": "auto",
+        "generated_at": time.time(),
+        "output_format": "markdown",
+        "output_extension": "md",
+        "pipeline_metadata": pipeline_metadata,
+    }
+    (output_dir / "metadata.json").write_text(
+        json.dumps(metadata, indent=2), encoding=settings.OUTPUT_ENCODING
+    )
+    return output_path
+
+
 def make_archives(output_dir: Path, archive_dir: Path, storage_stem: str, package_stem: str) -> tuple[Path, Path]:
     archive_dir.mkdir(parents=True, exist_ok=True)
     zip_path = archive_dir / f"{storage_stem}.zip"
@@ -391,6 +450,7 @@ def submit_job(job: Job):
         job.document_stem,
         job.display_stem,
         job.output_format,
+        job.conversion_engine,
     )
     future.add_done_callback(lambda done: log_job_future_result(job.id, done))
 
@@ -402,7 +462,14 @@ def log_job_future_result(job_id: str, future):
         logger.exception("Private web job %s worker crashed outside conversion error handling", job_id)
 
 
-def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_stem: str, output_format: str):
+def run_conversion(
+    job_id: str,
+    input_path: Path,
+    storage_stem: str,
+    package_stem: str,
+    output_format: str,
+    conversion_engine: str = "marker",
+):
     jobs: JobStore = app_data["jobs"]
     job_dir = JOB_ROOT / job_id
     output_dir = job_dir / "output"
@@ -417,24 +484,31 @@ def run_conversion(job_id: str, input_path: Path, storage_stem: str, package_ste
             input_path,
             output_format,
         )
-        jobs.update(job_id, status="running", stage="Loading models", progress=10)
-        models = create_model_dict()
-        logger.info("Private web job %s loaded models", job_id)
+        if conversion_engine == "auto":
+            jobs.update(job_id, status="running", stage="Running Docling quality gate", progress=20)
+            save_auto_pipeline_output(input_path, output_dir, package_stem)
+        elif conversion_engine == "docling":
+            jobs.update(job_id, status="running", stage="Converting with Docling", progress=20)
+            save_docling_output(input_path, output_dir, package_stem, output_format)
+        else:
+            jobs.update(job_id, status="running", stage="Loading models", progress=10)
+            models = create_model_dict()
+            logger.info("Private web job %s loaded models", job_id)
 
-        jobs.update(job_id, stage=f"Converting to {output_format}", progress=20)
-        config_parser = ConfigParser({"output_format": output_format, "disable_multiprocessing": True})
-        converter = PdfConverter(
-            config=config_parser.generate_config_dict(),
-            artifact_dict=models,
-            processor_list=config_parser.get_processors(),
-            renderer=config_parser.get_renderer(),
-            llm_service=config_parser.get_llm_service(),
-        )
-        rendered = converter(str(input_path))
-        logger.info("Private web job %s conversion finished; saving output", job_id)
+            jobs.update(job_id, stage=f"Converting to {output_format}", progress=20)
+            config_parser = ConfigParser({"output_format": output_format, "disable_multiprocessing": True})
+            converter = PdfConverter(
+                config=config_parser.generate_config_dict(),
+                artifact_dict=models,
+                processor_list=config_parser.get_processors(),
+                renderer=config_parser.get_renderer(),
+                llm_service=config_parser.get_llm_service(),
+            )
+            rendered = converter(str(input_path))
+            logger.info("Private web job %s conversion finished; saving output", job_id)
 
-        jobs.update(job_id, stage="Normalizing output", progress=85)
-        save_private_output(rendered, output_dir, package_stem, output_format)
+            jobs.update(job_id, stage="Normalizing output", progress=85)
+            save_private_output(rendered, output_dir, package_stem, output_format)
 
         jobs.update(job_id, stage="Packaging archives", progress=92)
         zip_path, targz_path = make_archives(output_dir, archive_dir, storage_stem, package_stem)
@@ -496,8 +570,8 @@ def html_page() -> str:
 <body>
 <main>
   <header>
-    <h1>Private PDF to Markdown Converter</h1>
-    <p class="muted">Personal, non-commercial conversion service. {auth_note}</p>
+    <h1>Private Document Converter</h1>
+    <p class="muted">Personal, non-commercial Marker and optional Docling conversion service. {auth_note}</p>
   </header>
 
   <section id="signin">
@@ -512,8 +586,16 @@ def html_page() -> str:
 
   <section>
     <form id="upload-form">
-      <label for="pdf">PDF file</label>
-      <input id="pdf" name="file" type="file" accept="application/pdf,.pdf" required>
+      <label for="pdf">Document file</label>
+      <input id="pdf" name="file" type="file" accept="application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp,.tif,.tiff,.pptx,.docx,.xlsx,.html,.htm,.epub" required>
+      <p>
+        <label for="conversion_engine">Conversion engine</label>
+        <select id="conversion_engine" name="conversion_engine">
+          <option value="marker">Marker</option>
+          <option value="docling">Docling</option>
+          <option value="auto">Auto</option>
+        </select>
+      </p>
       <p>
         <label for="output_format">Output format</label>
         <select id="output_format" name="output_format">
@@ -537,13 +619,13 @@ def html_page() -> str:
   <section>
     <label>Progress</label>
     <progress id="progress" value="0" max="100"></progress>
-    <p id="stage" class="muted">Waiting for a PDF.</p>
+    <p id="stage" class="muted">Waiting for a document.</p>
     <p id="error" class="error"></p>
     <div id="downloads" class="downloads"></div>
   </section>
 
   <footer>
-    Powered by <a href="https://github.com/VikParuchuri/marker">Marker</a>. This private tool is intended only for the maintainer's personal, non-commercial document conversion use.
+    Powered by <a href="https://github.com/VikParuchuri/marker">Marker</a> and optional IBM Docling. This private tool is intended only for the maintainer's personal, non-commercial document conversion use.
   </footer>
 </main>
 <script>
@@ -567,7 +649,7 @@ uploadForm.addEventListener("submit", async (event) => {{
   errorBox.textContent = "";
   downloads.innerHTML = "";
   progress.value = 5;
-  stage.textContent = "Uploading PDF.";
+  stage.textContent = "Uploading document.";
   const body = new FormData(uploadForm);
   const response = await fetch("/jobs", {{ method: "POST", body }});
   if (!response.ok) {{
@@ -658,15 +740,24 @@ async def create_job(
     request: Request,
     file: Annotated[UploadFile, File()],
     output_format: Annotated[str, Form()] = "markdown",
+    conversion_engine: Annotated[str, Form()] = "marker",
     marker_web_token_cookie: Annotated[Optional[str], Cookie(alias=SESSION_COOKIE)] = None,
     authorization: Annotated[Optional[str], Header()] = None,
 ):
     require_auth(request, marker_web_token_cookie, authorization)
     if output_format not in SUPPORTED_OUTPUT_FORMATS:
         raise HTTPException(status_code=400, detail="Unsupported output format")
+    if conversion_engine not in SUPPORTED_CONVERSION_ENGINES:
+        raise HTTPException(status_code=400, detail="Unsupported conversion engine")
+    if conversion_engine == "docling" and output_format not in DOCLING_OUTPUT_FORMATS:
+        raise HTTPException(status_code=400, detail="Docling supports markdown, json, and html output formats")
+    if conversion_engine == "auto" and output_format not in AUTO_PIPELINE_OUTPUT_FORMATS:
+        raise HTTPException(status_code=400, detail="Auto pipeline supports markdown output only")
 
     content = await file.read()
     validate_upload_bytes(file.filename or "document.pdf", content)
+    if conversion_engine == "auto" and Path(file.filename or "document.pdf").suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Auto pipeline currently supports PDF input only")
 
     job_id = uuid.uuid4().hex
     original_filename = file.filename or "document.pdf"
@@ -687,6 +778,7 @@ async def create_job(
         document_stem=document_stem,
         display_stem=user_display_stem,
         output_format=output_format,  # type: ignore[arg-type]
+        conversion_engine=conversion_engine,  # type: ignore[arg-type]
         status="queued",
         stage="Queued",
         progress=0,
@@ -806,6 +898,9 @@ async def api_info():
         },
         "supported_input_extensions": sorted(SUPPORTED_INPUT_EXTENSIONS),
         "supported_output_formats": sorted(SUPPORTED_OUTPUT_FORMATS),
+        "supported_conversion_engines": sorted(SUPPORTED_CONVERSION_ENGINES),
+        "docling_output_formats": sorted(DOCLING_OUTPUT_FORMATS),
+        "auto_pipeline_output_formats": sorted(AUTO_PIPELINE_OUTPUT_FORMATS),
         "supported_archive_formats": sorted(ALLOWED_ARCHIVE_FORMATS),
         "endpoints": {
             "auth_status": "GET /auth/status",

@@ -37,14 +37,32 @@ Server 會透過 Marker logger 記錄 job 載入、重新排隊、送進 executo
 - `.html`, `.htm`
 - `.epub`
 
-## 支援 Marker 輸出格式
+## 轉換引擎與輸出格式
 
-使用 `output_format` form field，值為：
+使用 `conversion_engine` form field 選擇轉換引擎：
+
+- `marker`：預設，使用此專案原本的 Marker pipeline。
+- `docling`：使用 IBM Docling `DocumentConverter`。Docling 是 optional dependency，需先安裝 `marker-pdf[docling]` 或 `marker-pdf[full]`。
+- `auto`：PDF-to-Markdown routing pipeline。先用啟用 OCR 的 Docling 快速轉換並做品質檢查，不通過時才 fallback 到 Marker。
+
+Docling 官方文件目前建議的 Python 用法是 `DocumentConverter().convert(source).document`，再用 `export_to_markdown()` 等方法輸出；本專案依這個 API 包裝。
+
+使用 `output_format` form field，Marker 可用值為：
 
 - `markdown`
 - `json`
 - `html`
 - `chunks`
+
+Docling 可用值為：
+
+- `markdown`
+- `json`
+- `html`
+
+Auto 可用值為：
+
+- `markdown`
 
 壓縮檔下載格式支援：
 
@@ -106,11 +124,12 @@ curl -c cookies.txt -F 'token=your-private-token' http://127.0.0.1:8765/auth
 curl \
   -H 'Authorization: Bearer your-private-token' \
   -F 'file=@/path/to/document.pdf' \
+  -F 'conversion_engine=auto' \
   -F 'output_format=markdown' \
   http://127.0.0.1:8765/jobs
 ```
 
-`output_format` 可為 `markdown`、`json`、`html` 或 `chunks`。
+`conversion_engine` 可為 `marker`、`docling` 或 `auto`。`output_format` 在 Marker 可為 `markdown`、`json`、`html` 或 `chunks`；在 Docling 可為 `markdown`、`json` 或 `html`；在 Auto 只支援 `markdown`。
 
 ### `GET /jobs`
 
@@ -147,7 +166,7 @@ Running jobs 不允許刪除。
   - Input：無，或 `base_url`。
   - Output：驗證狀態。
 - `marker_web_create_job`
-  - Input：`base_url`、本機檔案路徑、`output_format`。
+  - Input：`base_url`、本機檔案路徑、`output_format`、`conversion_engine`。
   - Output：job object。
 - `marker_web_get_job`
   - Input：`base_url`、`job_id`。
@@ -175,15 +194,18 @@ Codex skill 可提供高階工作流：
 
 1. 確認 private Marker server base URL。
 2. 確認來源檔案路徑。
-3. 選擇 `output_format`：`markdown`、`json`、`html` 或 `chunks`。
-4. 透過 `POST /jobs` 上傳檔案。
-5. 輪詢 `GET /jobs/{job_id}` 直到完成。
-6. 下載指定壓縮格式。
-7. 如果使用者要求，刪除已保留 job。
+3. 選擇 `conversion_engine`：`marker`、`docling` 或 `auto`。
+4. 選擇 `output_format`：`markdown`、`json`、`html` 或 `chunks`。Docling 不支援 `chunks`；Auto 只支援 Markdown。
+5. 透過 `POST /jobs` 上傳檔案。
+6. 輪詢 `GET /jobs/{job_id}` 直到完成。
+7. 下載指定壓縮格式。
+8. 如果使用者要求，刪除已保留 job。
 
 建議 skill 指令：
 
 - 「用 private Marker 把這個檔案轉成 Markdown。」
+- 「用 Docling 把這個 PDF 轉成 Markdown。」
+- 「用 Auto mode 轉這個 PDF；Docling 品質不夠時自動 fallback Marker。」
 - 「把這個 PDF 轉成 JSON 並下載 zip。」
 - 「列出已保留的 Marker conversion jobs。」
 - 「刪除 Marker job `<job_id>`。」

@@ -37,14 +37,32 @@ Supported upload extensions:
 - `.html`, `.htm`
 - `.epub`
 
-## Supported Marker Output Formats
+## Conversion Engines and Output Formats
 
-Use the `output_format` form field with one of:
+Use the `conversion_engine` form field with one of:
+
+- `marker`: the existing Marker pipeline.
+- `docling`: IBM Docling `DocumentConverter`. This is an optional dependency; install `marker-pdf[docling]` or `marker-pdf[full]` before submitting Docling jobs.
+- `auto`: PDF-to-Markdown routing pipeline. It runs Docling with OCR first, evaluates the Markdown quality, and falls back to Marker if the quality gate fails.
+
+Docling's current official Python API converts with `DocumentConverter().convert(source).document` and exports through methods such as `export_to_markdown()`.
+
+For Marker, use the `output_format` form field with one of:
 
 - `markdown`
 - `json`
 - `html`
 - `chunks`
+
+For Docling, use one of:
+
+- `markdown`
+- `json`
+- `html`
+
+For Auto, use:
+
+- `markdown`
 
 The archive itself can be downloaded as:
 
@@ -126,6 +144,7 @@ Request:
 curl \
   -H 'Authorization: Bearer your-private-token' \
   -F 'file=@/path/to/document.pdf' \
+  -F 'conversion_engine=auto' \
   -F 'output_format=markdown' \
   http://127.0.0.1:8765/jobs
 ```
@@ -139,6 +158,7 @@ Response:
   "document_stem": "document-jobprefix",
   "display_stem": "測試文件",
   "output_format": "markdown",
+  "conversion_engine": "auto",
   "status": "queued",
   "stage": "Queued",
   "progress": 0,
@@ -199,7 +219,7 @@ The implemented stdio MCP server wraps this API with these tools:
   - Input: none or `base_url`.
   - Output: authentication state.
 - `marker_web_create_job`
-  - Input: `base_url`, local file path, `output_format`.
+  - Input: `base_url`, local file path, `output_format`, `conversion_engine`.
   - Output: job object.
 - `marker_web_get_job`
   - Input: `base_url`, `job_id`.
@@ -227,15 +247,18 @@ A Codex skill can provide a higher-level workflow:
 
 1. Confirm the private Marker server base URL.
 2. Confirm the source file path.
-3. Choose `output_format`: `markdown`, `json`, `html`, or `chunks`.
-4. Upload the file through `POST /jobs`.
-5. Poll `GET /jobs/{job_id}` until completion.
-6. Download the selected archive format.
-7. Optionally delete the retained job if the user asks.
+3. Choose `conversion_engine`: `marker`, `docling`, or `auto`.
+4. Choose `output_format`: `markdown`, `json`, `html`, or `chunks`. Docling does not support `chunks`; Auto supports Markdown only.
+5. Upload the file through `POST /jobs`.
+6. Poll `GET /jobs/{job_id}` until completion.
+7. Download the selected archive format.
+8. Optionally delete the retained job if the user asks.
 
 Suggested skill commands:
 
 - "Convert this file with private Marker to Markdown."
+- "Use Docling to convert this PDF to Markdown."
+- "Use Auto mode to convert this PDF and fall back to Marker if Docling output looks broken."
 - "Convert this PDF to JSON and download the zip."
 - "List retained Marker conversion jobs."
 - "Delete Marker job `<job_id>`."

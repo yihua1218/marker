@@ -19,12 +19,19 @@ Use this skill when a user wants to convert local documents through their privat
 
 1. Check authentication with `marker_web_auth_status`.
 2. Confirm the local source file path exists.
-3. Ask for output format only if the user did not specify one. Default to `markdown`.
-4. Create a conversion job with `marker_web_create_job`.
-5. Poll with `marker_web_get_job` until `complete` or `failed`.
-6. Download the archive with `marker_web_download_job` when complete.
-7. Report the saved archive path and job id.
-8. Delete a job only when the user explicitly asks.
+3. Ask for conversion engine only if the user did not specify one. Default to `marker`; use `docling` when requested, and `auto` when the user wants fallback routing.
+4. Ask for output format only if the user did not specify one. Default to `markdown`.
+5. Create a conversion job with `marker_web_create_job`, passing `conversion_engine`.
+6. Poll with `marker_web_get_job` until `complete` or `failed`.
+7. Download the archive with `marker_web_download_job` when complete.
+8. Report the saved archive path and job id.
+9. Delete a job only when the user explicitly asks.
+
+## Conversion Engines
+
+- `marker`
+- `docling`
+- `auto`
 
 ## Output Formats
 
@@ -32,6 +39,9 @@ Use this skill when a user wants to convert local documents through their privat
 - `json`
 - `html`
 - `chunks`
+
+Docling supports `markdown`, `json`, and `html`; it does not support `chunks`.
+Auto supports `markdown` only and currently expects PDF input.
 
 ## Archive Formats
 

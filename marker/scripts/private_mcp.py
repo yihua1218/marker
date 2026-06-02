@@ -56,7 +56,12 @@ class MarkerWebClient:
     def delete_job(self, job_id: str) -> Any:
         return self.request("DELETE", f"/jobs/{job_id}")
 
-    def create_job(self, file_path: str, output_format: str = "markdown") -> Any:
+    def create_job(
+        self,
+        file_path: str,
+        output_format: str = "markdown",
+        conversion_engine: str = "marker",
+    ) -> Any:
         path = Path(file_path).expanduser()
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -65,7 +70,7 @@ class MarkerWebClient:
                 f"{self.base_url}/jobs",
                 headers=self.headers(),
                 files={"file": (path.name, file_obj)},
-                data={"output_format": output_format},
+                data={"output_format": output_format, "conversion_engine": conversion_engine},
                 timeout=DEFAULT_TIMEOUT,
             )
         response.raise_for_status()
@@ -128,6 +133,11 @@ def tool_schema() -> list[dict[str, Any]]:
                         "enum": ["markdown", "json", "html", "chunks"],
                         "default": "markdown",
                     },
+                    "conversion_engine": {
+                        "type": "string",
+                        "enum": ["marker", "docling", "auto"],
+                        "default": "marker",
+                    },
                 },
             },
         },
@@ -178,7 +188,9 @@ class StdioMCPServer:
             "marker_web_list_jobs": lambda args: self.client.list_jobs(),
             "marker_web_get_job": lambda args: self.client.get_job(args["job_id"]),
             "marker_web_create_job": lambda args: self.client.create_job(
-                args["file_path"], args.get("output_format", "markdown")
+                args["file_path"],
+                args.get("output_format", "markdown"),
+                args.get("conversion_engine", "marker"),
             ),
             "marker_web_download_job": lambda args: self.client.download_job(
                 args["job_id"], args.get("archive_format", "zip"), args["destination_path"]

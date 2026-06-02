@@ -12,6 +12,8 @@ from marker.scripts.private_web import (
     display_stem,
     make_archives,
     safe_stem,
+    save_auto_pipeline_output,
+    save_docling_output,
     validate_upload_bytes,
 )
 
@@ -76,6 +78,7 @@ def test_job_store_persists_and_migrates_output_format(tmp_path: Path, monkeypat
         document_stem="document-abc",
         display_stem="測試文件",
         output_format="markdown",
+        conversion_engine="marker",
         status="complete",
         stage="Complete",
         progress=100,
@@ -88,6 +91,7 @@ def test_job_store_persists_and_migrates_output_format(tmp_path: Path, monkeypat
     loaded.load()
     assert loaded.get("abc").display_stem == "測試文件"
     assert loaded.get("abc").output_format == "markdown"
+    assert loaded.get("abc").conversion_engine == "marker"
 
     old_dir = tmp_path / "old"
     old_dir.mkdir()
@@ -106,6 +110,7 @@ def test_job_store_persists_and_migrates_output_format(tmp_path: Path, monkeypat
     migrated = JobStore()
     migrated.load()
     assert migrated.get("old").output_format == "markdown"
+    assert migrated.get("old").conversion_engine == "marker"
     assert migrated.get("old").display_stem == "old"
 
 
@@ -119,6 +124,7 @@ def test_job_store_requeues_in_progress_jobs_on_load(tmp_path: Path, monkeypatch
         "document_stem": "report-running",
         "display_stem": "report",
         "output_format": "markdown",
+        "conversion_engine": "marker",
         "status": "running",
         "stage": "Converting to markdown",
         "progress": 20,
@@ -135,3 +141,64 @@ def test_job_store_requeues_in_progress_jobs_on_load(tmp_path: Path, monkeypatch
     assert job.stage == "Queued for resume"
     assert job.progress == 10
     assert job.error is None
+
+
+def test_save_docling_output_uses_docling_converter(tmp_path: Path, monkeypatch):
+    class FakeDocument:
+        def export_to_markdown(self):
+            return "# Docling"
+
+        def export_to_html(self):
+            return "<h1>Docling</h1>"
+
+        def save_as_json(self, filename: str, indent: int = 2):
+            Path(filename).write_text(json.dumps({"name": "Docling"}, indent=indent), encoding="utf-8")
+
+    class FakePipeline:
+        def convert_with_docling(self, source: str):
+            assert source.endswith("input.pdf")
+            return FakeDocument()
+
+    monkeypatch.setattr(private_web, "DocumentConversionPipeline", FakePipeline)
+
+    input_path = tmp_path / "input.pdf"
+    input_path.write_bytes(b"%PDF-1.4\n")
+
+    output_path = save_docling_output(input_path, tmp_path / "output", "result", "markdown")
+
+    assert output_path.name == "result.md"
+    assert output_path.read_text(encoding="utf-8") == "# Docling"
+    metadata = json.loads((tmp_path / "output" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["conversion_engine"] == "docling"
+
+
+def test_save_docling_output_reports_missing_dependency(tmp_path: Path, monkeypatch):
+    class FakePipeline:
+        def convert_with_docling(self, source: str):
+            raise RuntimeError("Docling is not installed")
+
+    monkeypatch.setattr(private_web, "DocumentConversionPipeline", FakePipeline)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        save_docling_output(tmp_path / "input.pdf", tmp_path / "output", "result", "markdown")
+
+    assert "Docling is not installed" in str(exc_info.value)
+
+
+def test_save_auto_pipeline_output_writes_metadata(tmp_path: Path, monkeypatch):
+    class FakePipeline:
+        def process_pdf(self, pdf_path: str):
+            assert pdf_path.endswith("input.pdf")
+            return "# Auto", {"track": "docling", "quality_gate": {"passed": True}}
+
+    monkeypatch.setattr(private_web, "DocumentConversionPipeline", FakePipeline)
+    input_path = tmp_path / "input.pdf"
+    input_path.write_bytes(b"%PDF-1.4\n")
+
+    output_path = save_auto_pipeline_output(input_path, tmp_path / "output", "result")
+
+    assert output_path.name == "result.md"
+    assert output_path.read_text(encoding="utf-8") == "# Auto"
+    metadata = json.loads((tmp_path / "output" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["conversion_engine"] == "auto"
+    assert metadata["pipeline_metadata"]["track"] == "docling"

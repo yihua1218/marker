@@ -36,6 +36,7 @@ const { Title, Text, Paragraph } = Typography;
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed';
 type OutputFormat = 'markdown' | 'json' | 'html' | 'chunks';
+type ConversionEngine = 'marker' | 'docling' | 'auto';
 
 interface Job {
   id: string;
@@ -43,6 +44,7 @@ interface Job {
   document_stem: string;
   display_stem: string;
   output_format: OutputFormat;
+  conversion_engine: ConversionEngine;
   status: JobStatus;
   stage: string;
   progress: number;
@@ -65,6 +67,11 @@ const statusColor: Record<JobStatus, string> = {
 };
 
 const supportedInputFormats = ['PDF', 'Images', 'PPTX', 'DOCX', 'XLSX', 'HTML', 'EPUB'];
+const supportedConversionEngines: Array<{ value: ConversionEngine; label: string; description: string }> = [
+  { value: 'marker', label: 'Marker', description: 'Marker pipeline with all existing output modes' },
+  { value: 'docling', label: 'Docling', description: 'IBM Docling conversion for Markdown, JSON, and HTML' },
+  { value: 'auto', label: 'Auto', description: 'Docling fast track with Marker fallback when quality checks fail' },
+];
 const supportedOutputFormats: Array<{ value: OutputFormat; label: string; description: string }> = [
   { value: 'markdown', label: 'Markdown', description: 'Readable .md output with extracted images' },
   { value: 'json', label: 'JSON', description: 'Structured document tree as JSON' },
@@ -106,6 +113,7 @@ function App() {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [archiveFormat, setArchiveFormat] = useState<'zip' | 'tar.gz'>('zip');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('markdown');
+  const [conversionEngine, setConversionEngine] = useState<ConversionEngine>('marker');
   const [uploading, setUploading] = useState(false);
   const [loadingJobs, setLoadingJobs] = useState(false);
 
@@ -182,6 +190,7 @@ function App() {
     const body = new FormData();
     body.append('file', file);
     body.append('output_format', outputFormat);
+    body.append('conversion_engine', conversionEngine);
     setUploading(true);
     try {
       const res = await axios.post<Job>('/jobs', body);
@@ -224,6 +233,13 @@ function App() {
   };
 
   const signedIn = !!auth?.authenticated;
+  const outputOptions = supportedOutputFormats
+    .filter((format) => conversionEngine === 'marker' || format.value !== 'chunks')
+    .filter((format) => conversionEngine !== 'auto' || format.value === 'markdown')
+    .map((format) => ({
+      value: format.value,
+      label: format.label,
+    }));
 
   return (
     <ConfigProvider
@@ -303,9 +319,9 @@ function App() {
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <Card>
                   <div className="marker-card-title">
-                    <Title level={3}>Convert PDF</Title>
+                    <Title level={3}>Convert document</Title>
                     <Paragraph type="secondary">
-                      Marker can read PDF, image, PPTX, DOCX, XLSX, HTML, and EPUB files. Choose the Marker output mode and download the result as an archive.
+                      Marker and Docling can read PDF, image, PPTX, DOCX, XLSX, HTML, and EPUB files. Auto mode routes PDFs through Docling first and falls back to Marker when quality checks fail.
                     </Paragraph>
                   </div>
                   <Alert
@@ -322,7 +338,13 @@ function App() {
                           ))}
                         </div>
                         <div>
-                          <Text strong>Marker output modes: </Text>
+                          <Text strong>Engines: </Text>
+                          {supportedConversionEngines.map((engine) => (
+                            <Tag key={engine.value} color={engine.value === conversionEngine ? 'blue' : undefined}>{engine.label}</Tag>
+                          ))}
+                        </div>
+                        <div>
+                          <Text strong>Output modes: </Text>
                           {supportedOutputFormats.map((format) => (
                             <Tag key={format.value} color={format.value === outputFormat ? 'blue' : undefined}>{format.label}</Tag>
                           ))}
@@ -340,17 +362,28 @@ function App() {
                     beforeUpload={() => false}
                     onChange={({ fileList: nextList }) => setFileList(nextList)}
                   >
-                    <Button icon={<UploadOutlined />}>Choose PDF</Button>
+                    <Button icon={<UploadOutlined />}>Choose file</Button>
                   </Upload>
                   <Flex align="center" gap={12} style={{ marginTop: 16 }} wrap>
+                    <Select
+                      value={conversionEngine}
+                      style={{ width: 180 }}
+                      onChange={(value: ConversionEngine) => {
+                        setConversionEngine(value);
+                        if ((value === 'docling' && outputFormat === 'chunks') || value === 'auto') {
+                          setOutputFormat('markdown');
+                        }
+                      }}
+                      options={supportedConversionEngines.map((engine) => ({
+                        value: engine.value,
+                        label: engine.label,
+                      }))}
+                    />
                     <Select
                       value={outputFormat}
                       style={{ width: 180 }}
                       onChange={setOutputFormat}
-                      options={supportedOutputFormats.map((format) => ({
-                        value: format.value,
-                        label: format.label,
-                      }))}
+                      options={outputOptions}
                     />
                     <Select
                       value={archiveFormat}
@@ -366,6 +399,8 @@ function App() {
                     </Button>
                   </Flex>
                   <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    {supportedConversionEngines.find((engine) => engine.value === conversionEngine)?.description}
+                    {' · '}
                     {supportedOutputFormats.find((format) => format.value === outputFormat)?.description}
                   </Text>
                 </Card>
@@ -385,7 +420,7 @@ function App() {
                         <Text type="secondary">{selectedJob.original_filename}</Text>
                         <br />
                         <Text type="secondary">
-                          {selectedJob.output_format} · Created {formatTime(selectedJob.created_at)}
+                          {selectedJob.conversion_engine} · {selectedJob.output_format} · Created {formatTime(selectedJob.created_at)}
                         </Text>
                       </div>
                       <Progress percent={selectedJob.progress} status={selectedJob.status === 'failed' ? 'exception' : undefined} />
@@ -437,7 +472,7 @@ function App() {
                         <Tag color={statusColor[job.status]}>{job.status}</Tag>
                       </div>
                       <Progress percent={job.progress} size="small" showInfo={false} />
-                      <Text type="secondary">{job.output_format} · {job.stage} · {formatTime(job.updated_at)}</Text>
+                      <Text type="secondary">{job.conversion_engine} · {job.output_format} · {job.stage} · {formatTime(job.updated_at)}</Text>
                     </button>
                   ))
                 )}
@@ -447,7 +482,7 @@ function App() {
         </Content>
 
         <Footer style={{ textAlign: 'center', color: '#6e6e73' }}>
-          Powered by <a href="https://github.com/VikParuchuri/marker">Marker</a>. This private tool is intended only for the maintainer&apos;s personal, non-commercial document conversion use.
+          Powered by <a href="https://github.com/VikParuchuri/marker">Marker</a> and optional IBM Docling. This private tool is intended only for the maintainer&apos;s personal, non-commercial document conversion use.
         </Footer>
       </Layout>
     </ConfigProvider>

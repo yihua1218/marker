@@ -39,6 +39,7 @@ MARKER_WEB_TOKEN=your-private-token \
   - Arguments:
     - `file_path`
     - `output_format`: `markdown`, `json`, `html`, or `chunks`
+    - `conversion_engine`: `marker`, `docling`, or `auto`
 - `marker_web_download_job`
   - Downloads a completed archive.
   - Arguments:
@@ -72,10 +73,17 @@ printf '%s\n' \
     "name": "marker_web_create_job",
     "arguments": {
       "file_path": "/path/to/document.pdf",
+      "conversion_engine": "auto",
       "output_format": "markdown"
     }
   }
 }
+```
+
+Docling and Auto support are optional. Install this project with the `docling` or `full` extra before submitting Docling or Auto jobs, for example:
+
+```bash
+pip install 'marker-pdf[docling]'
 ```
 
 ## Security Notes
